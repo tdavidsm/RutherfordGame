@@ -255,6 +255,23 @@ function pointInPoly(pt,vs){
 function centroid(vs){
   let x=0,y=0;for(const v of vs){x+=v.x;y+=v.y;}return {x:x/vs.length,y:y/vs.length};
 }
+function distToSeg(p,a,b){
+  const ab={x:b.x-a.x,y:b.y-a.y}, ap={x:p.x-a.x,y:p.y-a.y};
+  const t=clamp((ap.x*ab.x+ap.y*ab.y)/((ab.x*ab.x+ab.y*ab.y)||1),0,1);
+  return V.len({x:ap.x-ab.x*t, y:ap.y-ab.y*t});
+}
+function distToPoly(p,vs){        // 0 if inside, else distance to nearest edge
+  if(pointInPoly(p,vs)) return 0;
+  let d=1e9; for(let i=0;i<vs.length;i++) d=Math.min(d, distToSeg(p,vs[i],vs[(i+1)%vs.length]));
+  return d;
+}
+const HIT_PAD=16;                 // forgiving finger radius around each shape
+function hitToken(p){             // topmost token whose padded body contains p, else -1
+  for(let i=S.tokens.length-1;i>=0;i--){
+    if(distToPoly(p, worldVerts(S.tokens[i])) <= HIT_PAD) return i;
+  }
+  return -1;
+}
 
 /* ---------- state ---------- */
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
@@ -512,26 +529,26 @@ function evtPos(e){
   return {x:t.clientX-r.left, y:t.clientY-r.top};
 }
 cv.addEventListener('pointerdown',e=>{
-  cv.setPointerCapture(e.pointerId);
+  try{ cv.setPointerCapture(e.pointerId); }catch(_){}
   const p=evtPos(e);
   if(S.phase==='fire'){
     if(V.len(V.sub(p,C))<R*1.05){ S.drag={kind:'aim'}; aimTo(p); }
   }else if(S.phase==='guess'){
-    // 1. rotate handle of the currently selected token (big target)
-    const stk=S.tokens[S.selected];
-    if(stk && V.len(V.sub(p, rotHandle(stk)))<ROT_HIT){ S.drag={kind:'rot',tk:stk}; return; }
-    // 2. tap a shape → select it (bring to top) and start moving
-    for(let i=S.tokens.length-1;i>=0;i--){
-      if(pointInPoly(p, worldVerts(S.tokens[i]))){
-        const tk=S.tokens.splice(i,1)[0];
-        S.tokens.push(tk);                 // bring to top
-        S.selected=S.tokens.length-1;
-        S.drag={kind:'move',tk,off:V.sub(tk.pos,p)};
-        return;
-      }
+    // 1. tap on/near any shape → select it (bring to top) and move. Bodies beat the handle.
+    const hit=hitToken(p);
+    if(hit>=0){
+      const tk=S.tokens.splice(hit,1)[0];
+      S.tokens.push(tk);                   // bring to top
+      S.selected=S.tokens.length-1;
+      S.drag={kind:'move',tk,off:V.sub(tk.pos,p)};
+      return;
     }
+    // 2. otherwise the selected shape's rotate handle (only acts in empty space around it)
+    const stk=S.tokens[S.selected];
+    if(stk && V.len(V.sub(p, rotHandle(stk)))<ROT_HIT){ S.drag={kind:'rot',tk:stk}; }
   }
 },{passive:false});
+cv.addEventListener('pointercancel',()=>{ S.drag=null; },{passive:false});
 cv.addEventListener('pointermove',e=>{
   if(!S.drag) return;
   const p=evtPos(e);
