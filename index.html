@@ -363,13 +363,23 @@ function newRound(level){
   S.truth=[]; S.shots=[]; S.anim=[]; S.tokens=[]; S.score=0; S.fired=0; S.selected=-1;
   $('shotCount').textContent=0;
   const N=randInt(cfg.min,cfg.max), decoys=cfg.offered-N;
-  const cap=Math.max(1, TYPES.length-decoys);       // limit distinct truth types so decoys can be distinct
+  const cap=Math.max(1, TYPES.length-decoys);       // leave unused types for distinct decoys
   const pool=shuffle(TYPES.slice()).slice(0,cap);
-  // hidden truth shapes
+  // prefer distinct types — repeat a type only when N exceeds the available pool
+  const types=[]; for(let i=0;i<N;i++) types.push(pool[i%pool.length]);
+  // spread sizes, and within any repeated type force a clear size gap so a swap is penalised
+  const sMin=R*0.085, sMax=R*0.16, sizeOf=new Array(N), byType={};
+  types.forEach((t,i)=>{(byType[t]=byType[t]||[]).push(i);});
+  for(const t in byType){
+    const idxs=shuffle(byType[t]), m=idxs.length;
+    idxs.forEach((idx,k)=>{
+      const base = m===1 ? sMin+Math.random()*(sMax-sMin) : sMin+(sMax-sMin)*(k/(m-1));
+      sizeOf[idx]=clamp(base+(Math.random()-0.5)*(sMax-sMin)*0.1, sMin*0.9, sMax*1.1);
+    });
+  }
   const placed=[];
   for(let i=0;i<N;i++){
-    const type=pool[Math.floor(Math.random()*pool.length)];
-    const size=R*(0.10+Math.random()*0.05);
+    const type=types[i], size=sizeOf[i];
     let pos, tries=0;
     do{
       const ang=Math.random()*Math.PI*2, dist=R*(0.12+Math.random()*0.34);
