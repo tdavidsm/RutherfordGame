@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Rutherford">
+<meta name="theme-color" content="#0b0f1a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <title>Rutherford Scatter</title>
 <style>
   :root{
@@ -592,6 +599,17 @@ function boot(){
   newStructure(); setPhase('fire'); requestAnimationFrame(loop);
 }
 boot();
+
+/* Register the service worker only on the deployed site, never on localhost —
+   keeps local dev free of SW cache interference while iterating. */
+(function(){
+  const local = ['localhost','127.0.0.1','[::1]',''].includes(location.hostname);
+  if('serviceWorker' in navigator && location.protocol==='https:' && !local){
+    window.addEventListener('load',()=>{
+      navigator.serviceWorker.register('sw.js').catch(()=>{});
+    });
+  }
+})();
 </script>
 </body>
 </html>
