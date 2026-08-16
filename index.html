@@ -311,6 +311,11 @@ function resize(){
 }
 window.addEventListener('resize',resize);
 window.addEventListener('orientationchange',()=>setTimeout(resize,60));
+// Re-fit the canvas whenever its box changes — initial layout settling, control-bar
+// height changes between phases, window resize. Fires after layout, before paint.
+if('ResizeObserver' in window){
+  new ResizeObserver(resize).observe(document.getElementById('wrap'));
+}
 
 /* ---------- structure setup ---------- */
 function gunPos(){ return V.add(C, {x:Math.cos(S.orbit)*R, y:Math.sin(S.orbit)*R}); }
@@ -611,9 +616,10 @@ $('btnHowBack').addEventListener('click',()=>{ $('ovHow').classList.remove('on')
 
 /* ---------- boot ---------- */
 function boot(){
-  resize();
+  setPhase('fire');                                  // show the control bar BEFORE measuring
+  resize();                                          // so #wrap is sized at its true height
   if(R<=0){ requestAnimationFrame(boot); return; }   // wait for real layout before generating
-  newStructure(); setPhase('fire'); requestAnimationFrame(loop);
+  newStructure(); requestAnimationFrame(loop);
 }
 boot();
 
