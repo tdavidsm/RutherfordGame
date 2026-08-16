@@ -76,8 +76,15 @@
     display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;}
   .steps .t{font-size:14px;color:var(--ink);line-height:1.45;}
   .steps .t b{color:var(--ink);}
-  .scorebig{font-size:64px;font-weight:800;letter-spacing:-2px;line-height:1;}
-  .scoresub{font-size:17px;font-weight:600;}
+  .scorebig{font-size:52px;font-weight:800;letter-spacing:-1.5px;line-height:1;font-variant-numeric:tabular-nums;}
+  .scoresub{font-size:14px;font-weight:600;}
+  .levels{display:flex;flex-direction:column;gap:8px;width:100%;max-width:370px;}
+  .lvbtn{display:flex;flex-direction:column;align-items:flex-start;gap:2px;background:var(--panel2);
+    border:1px solid var(--line);border-radius:14px;padding:12px 16px;color:var(--ink);
+    font-family:inherit;cursor:pointer;text-align:left;transition:transform .06s;}
+  .lvbtn:active{transform:scale(.98);}
+  .lvbtn b{font-size:16px;font-weight:700;}
+  .lvbtn span{font-size:12.5px;color:var(--dim);}
 </style>
 </head>
 <body>
@@ -86,6 +93,7 @@
     <span class="title">Rutherford Scatter</span>
     <span class="phase" id="phaseTag">Fire</span>
     <span class="grow"></span>
+    <span class="stat">Lv <b id="lvTag">1</b></span>
     <span class="stat">Shots <b id="shotCount">0</b></span>
   </header>
 
@@ -115,7 +123,7 @@
 
   <!-- GUESS controls -->
   <div class="bar" id="barGuess">
-    <div class="hint" id="guessHint">Tap a shape to select it, drag to move. Rotate with its handle or the buttons below.</div>
+    <div class="hint" id="guessHint">Drag shapes from the tray into the ring.</div>
     <div class="btnrow">
       <button class="btn" id="btnRotL">⟲ Rotate</button>
       <button class="btn" id="btnRotR">Rotate ⟳</button>
@@ -129,20 +137,27 @@
   <!-- REVEAL controls -->
   <div class="bar" id="barReveal">
     <div style="text-align:center">
-      <div class="scorebig" id="scoreNum">0%</div>
-      <div class="scoresub" id="scoreLabel" style="color:var(--dim)">match</div>
+      <div class="scorebig" id="scoreNum">0</div>
+      <div class="scoresub" id="scoreLabel" style="color:var(--dim)">score</div>
     </div>
     <div class="btnrow">
+      <button class="btn" id="btnMenu">☰ Levels</button>
       <button class="btn" id="btnRefire">◀ Keep firing</button>
-      <button class="btn pri" id="btnNew">New structure</button>
+      <button class="btn pri" id="btnNew">Play again ▶</button>
     </div>
   </div>
 
   <!-- HOME overlay -->
   <div class="overlay on" id="ovHome">
     <h1>Rutherford Scatter</h1>
-    <p>A hidden structure sits at the center — you can't see it. Fire particles from the ring and watch how they scatter. From the pattern, deduce the shapes and place them.</p>
-    <button class="big" id="btnPlay">Start firing</button>
+    <p>Fire particles at a hidden structure, read how they scatter, then place the shapes you deduce. Pick a level:</p>
+    <div class="levels" id="levelList">
+      <button class="lvbtn" data-lv="1"><b>Level 1</b><span>1 shape · exact shape given</span></button>
+      <button class="lvbtn" data-lv="2"><b>Level 2</b><span>1 shape · 3 to choose from</span></button>
+      <button class="lvbtn" data-lv="3"><b>Level 3</b><span>2 shapes · 3 to choose from</span></button>
+      <button class="lvbtn" data-lv="4"><b>Level 4</b><span>3 shapes · 4 to choose from</span></button>
+      <button class="lvbtn" data-lv="5"><b>Level 5</b><span>2–4 shapes · 5 to choose · count hidden</span></button>
+    </div>
     <button class="big ghost" id="btnHow">How to play</button>
   </div>
 
@@ -152,7 +167,7 @@
     <div class="steps">
       <div class="s"><div class="n">1</div><div class="t"><b>Fire.</b> Move the cannon around the ring and aim inward. Most particles pass straight through — space is mostly empty.</div></div>
       <div class="s"><div class="n">2</div><div class="t"><b>Read the scatter.</b> A particle that hits the hidden structure kicks off at an angle, leaving an orange spark at the point of impact. Cluster enough sparks and the surfaces appear.</div></div>
-      <div class="s"><div class="n">3</div><div class="t"><b>Place.</b> Drag the real shapes onto where you believe they sit and rotate them to match. Reveal to see how close you got.</div></div>
+      <div class="s"><div class="n">3</div><div class="t"><b>Place.</b> Drag the right shapes from the tray into the ring and rotate them to match your sparks. Some levels offer decoy shapes — placing a wrong one scores nothing. Fewer shots and a closer match score higher.</div></div>
     </div>
     <button class="big" id="btnHowBack">Got it</button>
   </div>
@@ -223,25 +238,33 @@ function simulate(O,D,polys,C,R){
   return {path:[O, hit.point, exit], contact:hit.point};
 }
 
-/* ---------- convex polygon generation ---------- */
-function makeLocalPoly(radius){
-  const n = Math.random()<0.5 ? 3 : 4;
-  const base = Math.random()*Math.PI*2;
-  const angs=[];
-  for(let i=0;i<n;i++){
-    angs.push(base + i*(Math.PI*2/n) + (Math.random()-0.5)*(Math.PI/n)*0.7);
+/* ---------- shape system ---------- */
+const TYPES=['ellipse','triangle','quad','pentagon'];
+const TYPE_LABEL={ellipse:'ellipse',triangle:'triangle',quad:'quadrilateral',pentagon:'pentagon'};
+const LEVELS={
+  1:{min:1,max:1,offered:1,showCount:true},
+  2:{min:1,max:1,offered:3,showCount:true},
+  3:{min:2,max:2,offered:3,showCount:true},
+  4:{min:3,max:3,offered:4,showCount:true},
+  5:{min:2,max:4,offered:5,showCount:false},
+};
+function shapeVerts(type,size){        // canonical local verts (angle 0); circumradius = size
+  if(type==='ellipse'){
+    const a=size,b=size*0.62,n=30,out=[];
+    for(let i=0;i<n;i++){const t=i/n*2*Math.PI; out.push({x:Math.cos(t)*a,y:Math.sin(t)*b});}
+    return out;
   }
-  angs.sort((a,b)=>a-b);
-  return angs.map(a=>{
-    const rr=radius*(0.72+Math.random()*0.5);
-    return {x:Math.cos(a)*rr, y:Math.sin(a)*rr};
-  });
+  const n=type==='triangle'?3:type==='quad'?4:5, out=[];
+  for(let i=0;i<n;i++){const t=-Math.PI/2+i/n*2*Math.PI; out.push({x:Math.cos(t)*size,y:Math.sin(t)*size});}
+  return out;
 }
+function randInt(a,b){return a+Math.floor(Math.random()*(b-a+1));}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 function worldVerts(tok){
   return tok.local.map(v=>V.add(tok.pos, V.rot(v, tok.angle)));
 }
 function rotHandle(tok){
-  return V.add(tok.pos, V.rot({x:0, y:-((tok._rad||30)+ROT_OFFSET)}, tok.angle));
+  return V.add(tok.pos, V.rot({x:0, y:-((tok.size||30)+ROT_OFFSET)}, tok.angle));
 }
 function pointInPoly(pt,vs){
   let inside=false;
@@ -266,37 +289,45 @@ function distToPoly(p,vs){        // 0 if inside, else distance to nearest edge
   return d;
 }
 const HIT_PAD=16;                 // forgiving finger radius around each shape
-function hitToken(p){             // topmost token whose padded body contains p, else -1
+function hitPlaced(p){            // topmost PLACED token whose padded body contains p, else -1
   for(let i=S.tokens.length-1;i>=0;i--){
-    if(distToPoly(p, worldVerts(S.tokens[i])) <= HIT_PAD) return i;
+    const tk=S.tokens[i];
+    if(tk.placed && distToPoly(p, worldVerts(tk)) <= HIT_PAD) return i;
   }
   return -1;
+}
+function grab(i,p){               // start moving token i, bring to top, select it
+  const tk=S.tokens.splice(i,1)[0];
+  S.tokens.push(tk); S.selected=S.tokens.length-1;
+  S.drag={kind:'move',tk,off:V.sub(tk.pos,p)};
 }
 
 /* ---------- state ---------- */
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
-let W=0,H=0,DPR=1, C={x:0,y:0}, R=0;   // arena center + radius
+let W=0,H=0,DPR=1, C={x:0,y:0}, R=0, trayTop=0;   // arena center + radius, tray band top
 const S={
   phase:'fire',           // fire | guess | reveal
+  level:1,
   orbit:270*DEG,          // cannon angle on ring
   swivel:0,               // aim offset from inward, radians
   shots:[],               // {path:[...], contact, deflected}
   anim:[],                // active flying particles
-  truth:[],               // {local, pos, angle}
-  tokens:[],              // player guess polys {local,pos,angle,color}
-  selected:0,             // index of the token being edited
-  drag:null,              // {tok, mode, ...} or aim drag
+  fired:0,                // total particles fired this round (uncapped, for scoring)
+  truth:[],               // hidden shapes {type,size,local,pos,angle}
+  tokens:[],              // offered shapes {type,size,local,pos,angle,color,placed,isDecoy}
+  selected:-1,            // index of the token being edited (-1 = none)
+  drag:null,              // {tok, kind, ...} or aim drag
   score:0,
 };
-const MAXSWIVEL=55*DEG, NPOLY=3, HISTORY=500;
+const MAXSWIVEL=55*DEG, HISTORY=500;
 
 /* ---------- sizing ---------- */
 function remap(oldC,oldR,newC,newR){          // rescale all world geometry when arena resizes
   const k=newR/oldR;
   const f=p=>({x:newC.x+(p.x-oldC.x)*k, y:newC.y+(p.y-oldC.y)*k});
-  const scaleLocal=l=>l.map(v=>({x:v.x*k,y:v.y*k}));
-  for(const t of S.truth){ t.pos=f(t.pos); t.local=scaleLocal(t.local); t.rad*=k; }
-  for(const tk of S.tokens){ tk.pos=f(tk.pos); tk.local=scaleLocal(tk.local); if(tk._rad) tk._rad*=k; }
+  const sc=l=>l.map(v=>({x:v.x*k,y:v.y*k}));
+  for(const t of S.truth){ t.pos=f(t.pos); t.local=sc(t.local); t.size*=k; }
+  for(const tk of S.tokens){ if(tk.placed) tk.pos=f(tk.pos); tk.local=sc(tk.local); tk.size*=k; }
   for(const sh of S.shots) sh.path=sh.path.map(f);
 }
 function resize(){
@@ -305,9 +336,11 @@ function resize(){
   if(nw<10||nh<10) return;                    // layout not ready yet
   DPR=Math.min(window.devicePixelRatio||1,2);
   cv.width=nw*DPR; cv.height=nh*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
-  const nC={x:nw/2,y:nh/2}, nR=Math.min(nw,nh)*0.44;
+  const trayH=Math.round(Math.min(104,Math.max(64,nh*0.15)));  // reserve a shape tray at the bottom
+  const availH=nh-trayH;
+  const nC={x:nw/2,y:availH/2}, nR=Math.min(nw,availH)*0.44;
   if(R>0 && S.truth.length) remap(C,R,nC,nR);  // preserve the game across a resize/rotate
-  W=nw; H=nh; C=nC; R=nR;
+  W=nw; H=nh; C=nC; R=nR; trayTop=availH;
 }
 window.addEventListener('resize',resize);
 window.addEventListener('orientationchange',()=>setTimeout(resize,60));
@@ -323,29 +356,39 @@ function aimDir(){
   const inward=V.norm(V.sub(C,gunPos()));
   return V.rot(inward, S.swivel);
 }
-function newStructure(){
-  S.truth=[]; S.shots=[]; S.anim=[]; S.tokens=[]; S.score=0;
+const TOKCOLORS=['#8b7bff','#39c6ff','#ff8a4c','#4ade80','#f472b6'];
+function newRound(level){
+  S.level=level; $('lvTag').textContent=level;
+  const cfg=LEVELS[level];
+  S.truth=[]; S.shots=[]; S.anim=[]; S.tokens=[]; S.score=0; S.fired=0; S.selected=-1;
+  $('shotCount').textContent=0;
+  const N=randInt(cfg.min,cfg.max), decoys=cfg.offered-N;
+  const cap=Math.max(1, TYPES.length-decoys);       // limit distinct truth types so decoys can be distinct
+  const pool=shuffle(TYPES.slice()).slice(0,cap);
+  // hidden truth shapes
   const placed=[];
-  for(let i=0;i<NPOLY;i++){
-    const rad=R*(0.10+Math.random()*0.05);
+  for(let i=0;i<N;i++){
+    const type=pool[Math.floor(Math.random()*pool.length)];
+    const size=R*(0.10+Math.random()*0.05);
     let pos, tries=0;
     do{
-      const ang=Math.random()*Math.PI*2, dist=R*(0.14+Math.random()*0.34);
-      pos={x:C.x+Math.cos(ang)*dist, y:C.y+Math.sin(ang)*dist};
-      tries++;
-    }while(tries<60 && placed.some(p=>V.len(V.sub(p.pos,pos))< (p.rad+rad+R*0.06)));
-    const t={local:makeLocalPoly(rad), pos, angle:Math.random()*Math.PI*2, rad};
+      const ang=Math.random()*Math.PI*2, dist=R*(0.12+Math.random()*0.34);
+      pos={x:C.x+Math.cos(ang)*dist, y:C.y+Math.sin(ang)*dist}; tries++;
+    }while(tries<80 && placed.some(p=>V.len(V.sub(p.pos,pos))<(p.size+size+R*0.05)));
+    const t={type,size,local:shapeVerts(type,size),pos,angle:Math.random()*Math.PI*2};
     S.truth.push(t); placed.push(t);
   }
-}
-const TOKCOLORS=['#8b7bff','#39c6ff','#ff8a4c','#4ade80','#f472b6'];
-function buildTokens(){
-  S.tokens = S.truth.map((t,i)=>({
-    local:t.local,                       // same shape, unknown place/rotation
-    pos:{x:C.x + (i-(S.truth.length-1)/2)*R*0.42, y:C.y+R*0.72},
-    angle:0, color:TOKCOLORS[i%TOKCOLORS.length]
+  // offered tokens: one correct (matching type+size) per truth shape + decoys of unused types
+  const used=new Set(S.truth.map(t=>t.type));
+  const unused=shuffle(TYPES.filter(t=>!used.has(t)));
+  const spec=S.truth.map(t=>({type:t.type,size:t.size,isDecoy:false}));
+  for(let i=0;i<decoys;i++) spec.push({type:unused[i%unused.length],size:R*(0.10+Math.random()*0.05),isDecoy:true});
+  shuffle(spec);
+  S.tokens=spec.map((s,i)=>({
+    type:s.type, size:s.size, local:shapeVerts(s.type,s.size),
+    pos:{x:C.x,y:C.y}, angle:0, placed:false, isDecoy:s.isDecoy,
+    color:TOKCOLORS[i%TOKCOLORS.length]
   }));
-  S.selected=0;
 }
 
 /* ---------- firing ---------- */
@@ -361,7 +404,8 @@ function fireOne(dir){
 function commitShot(sh){
   S.shots.push(sh);
   if(S.shots.length>HISTORY) S.shots.shift();
-  document.getElementById('shotCount').textContent=S.shots.length;
+  S.fired++;
+  document.getElementById('shotCount').textContent=S.fired;
 }
 function fireFan(){
   const inward=V.norm(V.sub(C,gunPos()));
@@ -391,6 +435,31 @@ function polyPath(vs){
   ctx.moveTo(vs[0].x,vs[0].y);
   for(let i=1;i<vs.length;i++) ctx.lineTo(vs[i].x,vs[i].y);
   ctx.closePath();
+}
+function drawShape(local,pos,angle,scale,fill,stroke,lw){
+  const vs=local.map(v=>V.add(pos, V.rot(V.mul(v,scale||1), angle||0)));
+  polyPath(vs);
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.lineWidth=lw||2;ctx.strokeStyle=stroke;ctx.stroke();}
+}
+function trayUnplaced(){ return S.tokens.filter(t=>!t.placed); }
+function traySlot(i,n){ return {x:W*(i+0.5)/Math.max(n,1), y:trayTop+(H-trayTop)/2}; }
+function drawTray(){
+  ctx.fillStyle='rgba(20,28,46,.92)'; ctx.fillRect(0,trayTop,W,H-trayTop);
+  ctx.strokeStyle='#2b3a58'; ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(0,trayTop+0.5);ctx.lineTo(W,trayTop+0.5);ctx.stroke();
+  const un=trayUnplaced();
+  if(!un.length){
+    ctx.fillStyle='#93a4c6';ctx.font='13px -apple-system,system-ui,sans-serif';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('Drag a shape back here to return it',W/2,trayTop+(H-trayTop)/2);
+    return;
+  }
+  un.forEach((tk,i)=>{
+    const slot=traySlot(i,un.length);
+    const s=Math.min(1,(H-trayTop)*0.30/tk.size);
+    drawShape(tk.local, slot, 0, s, hexA(tk.color,0.22), tk.color, 2);
+  });
 }
 function pointAlong(path,dist){
   let d=dist;
@@ -448,13 +517,13 @@ function draw(){
     }
   }
 
-  // guess tokens
+  // placed guess tokens
   if(S.phase==='guess'||S.phase==='reveal'){
     S.tokens.forEach((tk,idx)=>{
+      if(!tk.placed) return;
       const sel = S.phase==='guess' && idx===S.selected;
-      const vs=worldVerts(tk);
-      polyPath(vs);
-      ctx.fillStyle=hexA(tk.color, S.phase==='reveal'?0.10 : sel?0.30:0.14);ctx.fill();
+      polyPath(worldVerts(tk));
+      ctx.fillStyle=hexA(tk.color, S.phase==='reveal'?0.10 : sel?0.30:0.16);ctx.fill();
       ctx.lineWidth = sel?3.5:2; ctx.strokeStyle=tk.color; ctx.stroke();
       if(sel){
         const cen=tk.pos, handle=rotHandle(tk);
@@ -467,6 +536,8 @@ function draw(){
       }
     });
   }
+  // shape tray (guess only)
+  if(S.phase==='guess') drawTray();
 
   // flying particles
   for(const a of S.anim){
@@ -498,19 +569,39 @@ function hexA(hex,a){
   return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
 }
 
-/* ---------- scoring (IoU by rasterization) ---------- */
-function scoreGuess(){
-  const G=140, x0=C.x-R, y0=C.y-R, cell=(2*R)/G;
-  const tw=S.truth.map(worldVerts), gw=S.tokens.map(worldVerts);
-  let inter=0, uni=0;
+/* ---------- scoring ----------
+   Match each truth shape to the best placed token OF THE SAME TYPE (unique assignment)
+   by IoU. Wrong-type placements match nothing → 0%. PercentageMatch is the average over
+   truth shapes (0..100). Round score = (1000 - Shots) * PercentageMatch * NumberOfShapes. */
+function scoreRound(){
+  const tw=S.truth.map(t=>({type:t.type, vs:worldVerts(t)}));
+  const gw=S.tokens.filter(t=>t.placed).map(t=>({type:t.type, vs:worldVerts(t)}));
+  const N=tw.length;
+  if(!N) return {match:0, score:0, N:0, shots:S.fired};
+  // one raster pass → per-shape areas + pairwise intersection counts
+  const G=120, x0=C.x-R, y0=C.y-R, cell=(2*R)/G;
+  const aT=new Array(tw.length).fill(0), aG=new Array(gw.length).fill(0);
+  const inter=tw.map(()=>new Array(gw.length).fill(0));
   for(let i=0;i<G;i++)for(let j=0;j<G;j++){
-    const p={x:x0+(i+0.5)*cell, y:y0+(j+0.5)*cell};
-    const inT=tw.some(vs=>pointInPoly(p,vs));
-    const inG=gw.some(vs=>pointInPoly(p,vs));
-    if(inT||inG) uni++;
-    if(inT&&inG) inter++;
+    const pt={x:x0+(i+0.5)*cell, y:y0+(j+0.5)*cell};
+    const tin=[], gin=[];
+    for(let a=0;a<tw.length;a++) if(pointInPoly(pt,tw[a].vs)){aT[a]++;tin.push(a);}
+    for(let b=0;b<gw.length;b++) if(pointInPoly(pt,gw[b].vs)){aG[b]++;gin.push(b);}
+    for(const a of tin)for(const b of gin) inter[a][b]++;
   }
-  return uni? inter/uni : 0;
+  // eligible same-type pairs, greedy unique assignment by IoU
+  const pairs=[];
+  for(let a=0;a<tw.length;a++)for(let b=0;b<gw.length;b++){
+    if(tw[a].type!==gw[b].type) continue;
+    const io=inter[a][b], uni=aT[a]+aG[b]-io;
+    if(io>0 && uni>0) pairs.push({a,b,iou:io/uni});
+  }
+  pairs.sort((x,y)=>y.iou-x.iou);
+  const usedT=new Set(), usedG=new Set(); let sum=0;
+  for(const pr of pairs){ if(usedT.has(pr.a)||usedG.has(pr.b)) continue; usedT.add(pr.a);usedG.add(pr.b); sum+=pr.iou; }
+  const match=(sum/N)*100, shots=S.fired;
+  const score=Math.max(0, Math.round((1000-shots)*match*N));
+  return {match, score, N, shots};
 }
 
 /* ---------- phase switching ---------- */
@@ -521,9 +612,10 @@ function setPhase(ph){
   document.getElementById('barReveal').classList.toggle('on',ph==='reveal');
   document.getElementById('phaseTag').textContent= ph==='fire'?'Fire':ph==='guess'?'Place':'Reveal';
   if(ph==='guess'){
-    if(!S.tokens.length) buildTokens();
-    for(const tk of S.tokens){ tk._rad=Math.max(...tk.local.map(v=>V.len(v))); }
-    S.selected=clamp(S.selected,0,S.tokens.length-1);
+    const cfg=LEVELS[S.level], N=S.truth.length;
+    document.getElementById('guessHint').textContent = cfg.showCount
+      ? `Find ${N} shape${N>1?'s':''}. Drag shapes from the tray into the ring; tap a placed shape to rotate it.`
+      : `Find the shapes — how many is part of the puzzle. Drag from the tray into the ring.`;
   }
 }
 
@@ -539,18 +631,24 @@ cv.addEventListener('pointerdown',e=>{
   if(S.phase==='fire'){
     if(V.len(V.sub(p,C))<R*1.05){ S.drag={kind:'aim'}; aimTo(p); }
   }else if(S.phase==='guess'){
-    // 1. tap on/near any shape → select it (bring to top) and move. Bodies beat the handle.
-    const hit=hitToken(p);
-    if(hit>=0){
-      const tk=S.tokens.splice(hit,1)[0];
-      S.tokens.push(tk);                   // bring to top
-      S.selected=S.tokens.length-1;
-      S.drag={kind:'move',tk,off:V.sub(tk.pos,p)};
-      return;
-    }
-    // 2. otherwise the selected shape's rotate handle (only acts in empty space around it)
+    // 1. tap on/near a placed shape → select (bring to top) and move. Bodies beat the handle.
+    const hit=hitPlaced(p);
+    if(hit>=0){ grab(hit,p); return; }
+    // 2. selected shape's rotate handle (only acts in empty space around it)
     const stk=S.tokens[S.selected];
-    if(stk && V.len(V.sub(p, rotHandle(stk)))<ROT_HIT){ S.drag={kind:'rot',tk:stk}; }
+    if(stk && stk.placed && V.len(V.sub(p, rotHandle(stk)))<ROT_HIT){ S.drag={kind:'rot',tk:stk}; return; }
+    // 3. pick a shape out of the tray
+    if(p.y>=trayTop){
+      const un=trayUnplaced();
+      if(un.length){
+        const idx=clamp(Math.floor(p.x/(W/un.length)),0,un.length-1);
+        const tk=un[idx];
+        tk.placed=true; tk.pos={x:p.x,y:p.y};
+        S.tokens.splice(S.tokens.indexOf(tk),1); S.tokens.push(tk);
+        S.selected=S.tokens.length-1;
+        S.drag={kind:'move',tk,off:{x:0,y:0}};
+      }
+    }
   }
 },{passive:false});
 cv.addEventListener('pointercancel',()=>{ S.drag=null; },{passive:false});
@@ -559,8 +657,8 @@ cv.addEventListener('pointermove',e=>{
   const p=evtPos(e);
   if(S.drag.kind==='aim') aimTo(p);
   else if(S.drag.kind==='move'){
-    let np=V.add(p,S.drag.off);
-    const d=V.sub(np,C); if(V.len(d)>R*0.9) np=V.add(C,V.mul(V.norm(d),R*0.9));
+    const np=V.add(p,S.drag.off);
+    np.x=clamp(np.x,8,W-8); np.y=clamp(np.y,8,H-8);   // free move (incl. into the tray to remove)
     S.drag.tk.pos=np;
   }
   else if(S.drag.kind==='rot'){
@@ -568,7 +666,14 @@ cv.addEventListener('pointermove',e=>{
   }
 },{passive:false});
 cv.addEventListener('pointerup',e=>{
-  if(S.drag && S.drag.kind==='aim'){ fireOne(aimDir()); }
+  if(S.drag){
+    if(S.drag.kind==='aim'){ fireOne(aimDir()); }
+    else if(S.drag.kind==='move'){
+      const tk=S.drag.tk;
+      if(tk.pos.y>=trayTop){ tk.placed=false; if(S.tokens[S.selected]===tk) S.selected=-1; }  // dropped in tray → remove
+      else{ const d=V.sub(tk.pos,C); if(V.len(d)>R*0.92) tk.pos=V.add(C,V.mul(V.norm(d),R*0.92)); }
+    }
+  }
   S.drag=null;
 },{passive:false});
 function aimTo(p){
@@ -590,36 +695,36 @@ $('aim').addEventListener('input',e=>{
 });
 $('btnFire').addEventListener('click',()=>fireOne(aimDir()));
 $('btnFan').addEventListener('click',fireFan);
-$('btnToGuess').addEventListener('click',()=>{ buildTokens(); setPhase('guess'); });
-function rotateSel(d){ const tk=S.tokens[S.selected]; if(tk){ tk.angle+=d; draw(); } }
+$('btnToGuess').addEventListener('click',()=>setPhase('guess'));
+function rotateSel(d){ const tk=S.tokens[S.selected]; if(tk&&tk.placed) tk.angle+=d; }
 $('btnRotL').addEventListener('click',()=>rotateSel(-12*DEG));
 $('btnRotR').addEventListener('click',()=>rotateSel(12*DEG));
 $('btnBackFire').addEventListener('click',()=>setPhase('fire'));
 $('btnReveal').addEventListener('click',()=>{
-  S.score=scoreGuess();
-  const pct=Math.round(S.score*100);
-  $('scoreNum').textContent=pct+'%';
-  let label,col;
-  if(pct>=75){label='Nailed it!';col='var(--ok)';}
-  else if(pct>=50){label='Close read';col='var(--beam)';}
-  else if(pct>=25){label='On the trail';col='var(--warn)';}
-  else{label='Keep probing';col='var(--dim)';}
-  $('scoreLabel').textContent=label; $('scoreLabel').style.color=col; $('scoreNum').style.color=col;
+  const r=scoreRound(); S.score=r.score;
+  const pct=Math.round(r.match);
+  $('scoreNum').textContent=r.score.toLocaleString();
+  const word = pct>=85?'Superb':pct>=60?'Solid read':pct>=35?'On the trail':'Keep probing';
+  $('scoreLabel').textContent=`${word} · ${pct}% match · ${r.N} shape${r.N>1?'s':''} · ${r.shots} shots`;
+  $('scoreLabel').style.color = pct>=60?'var(--ok)':pct>=35?'var(--warn)':'var(--dim)';
   setPhase('reveal');
 });
 $('btnRefire').addEventListener('click',()=>setPhase('fire'));
-$('btnNew').addEventListener('click',()=>{ newStructure(); $('shotCount').textContent=0; setPhase('fire'); });
+$('btnNew').addEventListener('click',()=>{ newRound(S.level); setPhase('fire'); });
+$('btnMenu').addEventListener('click',()=>{ $('ovHome').classList.add('on'); });
 
-$('btnPlay').addEventListener('click',()=>{ $('ovHome').classList.remove('on'); });
+document.querySelectorAll('.lvbtn').forEach(b=>{
+  b.addEventListener('click',()=>{ newRound(+b.dataset.lv); $('ovHome').classList.remove('on'); setPhase('fire'); });
+});
 $('btnHow').addEventListener('click',()=>{ $('ovHow').classList.add('on'); });
-$('btnHowBack').addEventListener('click',()=>{ $('ovHow').classList.remove('on'); $('ovHome').classList.remove('on'); });
+$('btnHowBack').addEventListener('click',()=>{ $('ovHow').classList.remove('on'); });
 
 /* ---------- boot ---------- */
 function boot(){
   setPhase('fire');                                  // show the control bar BEFORE measuring
   resize();                                          // so #wrap is sized at its true height
   if(R<=0){ requestAnimationFrame(boot); return; }   // wait for real layout before generating
-  newStructure(); requestAnimationFrame(loop);
+  newRound(1); requestAnimationFrame(loop);          // home overlay stays up until a level is picked
 }
 boot();
 
