@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Rutherford Scatter</title>
+<style>
+  :root{
+    --bg:#0b0f1a; --panel:#141c2e; --panel2:#1c2740; --line:#2b3a58;
+    --ink:#eef3ff; --dim:#93a4c6; --beam:#39c6ff; --hit:#ffb03a;
+    --scatter:#ff6a8a; --ok:#4ade80; --warn:#fbbf24; --accent:#8b7bff;
+    --truth:#4ade80;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;overflow:hidden;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+    user-select:none;-webkit-user-select:none;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  #stage{position:absolute;inset:0;display:flex;flex-direction:column;}
+
+  /* header */
+  header{display:flex;align-items:center;gap:12px;padding:10px 14px;}
+  header .title{font-size:19px;font-weight:800;letter-spacing:-.3px;}
+  header .phase{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);
+    background:var(--panel2);padding:4px 10px;border-radius:99px;}
+  header .grow{flex:1;}
+  header .stat{font-size:13px;color:var(--dim);font-variant-numeric:tabular-nums;}
+  header .stat b{color:var(--ink);font-weight:700;}
+
+  /* canvas */
+  #wrap{position:relative;flex:1;min-height:0;}
+  canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block;}
+
+  /* control bar */
+  .bar{padding:10px 12px 14px;display:none;flex-direction:column;gap:10px;background:linear-gradient(180deg,transparent,rgba(0,0,0,.15));}
+  .bar.on{display:flex;}
+  .sliderrow{display:flex;align-items:center;gap:12px;}
+  .sliderrow .lab{width:96px;flex:none;font-size:13px;color:var(--dim);}
+  .sliderrow .val{width:52px;flex:none;text-align:right;font-size:14px;font-variant-numeric:tabular-nums;color:var(--ink);font-weight:600;}
+  input[type=range]{flex:1;-webkit-appearance:none;height:34px;background:transparent;margin:0;}
+  input[type=range]::-webkit-slider-runnable-track{height:7px;border-radius:4px;background:var(--line);}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:30px;height:30px;border-radius:50%;
+    background:var(--accent);margin-top:-12px;border:3px solid var(--panel);}
+  .btnrow{display:flex;gap:9px;}
+  .btn{flex:1;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:13px;
+    padding:14px 10px;font-size:16px;font-weight:600;font-family:inherit;cursor:pointer;transition:transform .06s;}
+  .btn:active{transform:scale(.97);}
+  .btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn.beam{background:var(--beam);border-color:var(--beam);color:#04222f;}
+  .btn.small{flex:0 0 auto;padding:14px 16px;}
+  .hint{font-size:13px;color:var(--dim);text-align:center;line-height:1.4;}
+
+  /* overlay screens (home / how) */
+  .overlay{position:absolute;inset:0;background:rgba(6,9,16,.92);display:none;
+    flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:26px;text-align:center;z-index:20;}
+  .overlay.on{display:flex;}
+  .overlay h1{font-size:34px;margin:0;letter-spacing:-.6px;}
+  .overlay p{color:var(--dim);font-size:15px;line-height:1.5;max-width:440px;margin:0;}
+  .overlay .big{width:100%;max-width:320px;background:var(--accent);color:#fff;border:0;border-radius:16px;
+    padding:18px;font-size:19px;font-weight:700;font-family:inherit;cursor:pointer;}
+  .overlay .big.ghost{background:transparent;border:1px solid var(--line);color:var(--ink);}
+  .steps{text-align:left;max-width:440px;display:flex;flex-direction:column;gap:12px;}
+  .steps .s{display:flex;gap:12px;align-items:flex-start;}
+  .steps .n{flex:none;width:26px;height:26px;border-radius:50%;background:var(--panel2);color:var(--accent);
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;}
+  .steps .t{font-size:14px;color:var(--ink);line-height:1.45;}
+  .steps .t b{color:var(--ink);}
+  .scorebig{font-size:64px;font-weight:800;letter-spacing:-2px;line-height:1;}
+  .scoresub{font-size:17px;font-weight:600;}
+</style>
+</head>
+<body>
+<div id="stage">
+  <header>
+    <span class="title">Rutherford Scatter</span>
+    <span class="phase" id="phaseTag">Fire</span>
+    <span class="grow"></span>
+    <span class="stat">Shots <b id="shotCount">0</b></span>
+  </header>
+
+  <div id="wrap">
+    <canvas id="cv"></canvas>
+  </div>
+
+  <!-- FIRE controls -->
+  <div class="bar" id="barFire">
+    <div class="sliderrow">
+      <span class="lab">Cannon</span>
+      <input type="range" id="orbit" min="0" max="359" value="270">
+      <span class="val" id="orbitVal">270°</span>
+    </div>
+    <div class="sliderrow">
+      <span class="lab">Aim</span>
+      <input type="range" id="aim" min="-55" max="55" value="0">
+      <span class="val" id="aimVal">0°</span>
+    </div>
+    <div class="btnrow">
+      <button class="btn beam" id="btnFire">Fire</button>
+      <button class="btn" id="btnFan">Fan ×9</button>
+      <button class="btn pri" id="btnToGuess">Place shapes ▶</button>
+    </div>
+    <div class="hint">Drag inside the ring to aim &amp; release to fire. Sparks mark where particles strike the hidden structure.</div>
+  </div>
+
+  <!-- GUESS controls -->
+  <div class="bar" id="barGuess">
+    <div class="hint" id="guessHint">Tap a shape to select it, drag to move. Rotate with its handle or the buttons below.</div>
+    <div class="btnrow">
+      <button class="btn" id="btnRotL">⟲ Rotate</button>
+      <button class="btn" id="btnRotR">Rotate ⟳</button>
+    </div>
+    <div class="btnrow">
+      <button class="btn" id="btnBackFire">◀ Fire more</button>
+      <button class="btn pri" id="btnReveal">Reveal ▶</button>
+    </div>
+  </div>
+
+  <!-- REVEAL controls -->
+  <div class="bar" id="barReveal">
+    <div style="text-align:center">
+      <div class="scorebig" id="scoreNum">0%</div>
+      <div class="scoresub" id="scoreLabel" style="color:var(--dim)">match</div>
+    </div>
+    <div class="btnrow">
+      <button class="btn" id="btnRefire">◀ Keep firing</button>
+      <button class="btn pri" id="btnNew">New structure</button>
+    </div>
+  </div>
+
+  <!-- HOME overlay -->
+  <div class="overlay on" id="ovHome">
+    <h1>Rutherford Scatter</h1>
+    <p>A hidden structure sits at the center — you can't see it. Fire particles from the ring and watch how they scatter. From the pattern, deduce the shapes and place them.</p>
+    <button class="big" id="btnPlay">Start firing</button>
+    <button class="big ghost" id="btnHow">How to play</button>
+  </div>
+
+  <!-- HOW overlay -->
+  <div class="overlay" id="ovHow">
+    <h1>How to play</h1>
+    <div class="steps">
+      <div class="s"><div class="n">1</div><div class="t"><b>Fire.</b> Move the cannon around the ring and aim inward. Most particles pass straight through — space is mostly empty.</div></div>
+      <div class="s"><div class="n">2</div><div class="t"><b>Read the scatter.</b> A particle that hits the hidden structure kicks off at an angle, leaving an orange spark at the point of impact. Cluster enough sparks and the surfaces appear.</div></div>
+      <div class="s"><div class="n">3</div><div class="t"><b>Place.</b> Drag the real shapes onto where you believe they sit and rotate them to match. Reveal to see how close you got.</div></div>
+    </div>
+    <button class="big" id="btnHowBack">Got it</button>
+  </div>
+</div>
+
+<script>
+/* ---------- vector helpers ---------- */
+const V = {
+  add:(a,b)=>({x:a.x+b.x,y:a.y+b.y}),
+  sub:(a,b)=>({x:a.x-b.x,y:a.y-b.y}),
+  mul:(a,s)=>({x:a.x*s,y:a.y*s}),
+  dot:(a,b)=>a.x*b.x+a.y*b.y,
+  len:a=>Math.hypot(a.x,a.y),
+  norm:a=>{const l=Math.hypot(a.x,a.y)||1;return{x:a.x/l,y:a.y/l};},
+  rot:(a,ang)=>({x:a.x*Math.cos(ang)-a.y*Math.sin(ang), y:a.x*Math.sin(ang)+a.y*Math.cos(ang)}),
+};
+const DEG=Math.PI/180;
+function signedAngle(from,to){ // rotation needed to turn `from` into `to`, in (-pi,pi]
+  return Math.atan2(from.x*to.y-from.y*to.x, from.x*to.x+from.y*to.y);
+}
+function clamp(v,a,b){return v<a?a:v>b?b:v;}
+const ROT_OFFSET=40, ROT_HIT=34;   // rotate-handle distance from center + finger hit radius
+
+/* ---------- geometry / physics ---------- */
+// world polygon = {verts:[{x,y}...]} in world coords
+function raySeg(O,D,A,B){
+  const e=V.sub(B,A);
+  const denom=D.x*e.y-D.y*e.x;
+  if(Math.abs(denom)<1e-9) return null;
+  const diff=V.sub(A,O);
+  const t=(diff.x*e.y-diff.y*e.x)/denom;
+  const u=(D.y*diff.x-D.x*diff.y)/denom;
+  if(t>1e-4 && u>=0 && u<=1){
+    let n={x:e.y,y:-e.x};                 // edge normal
+    if(V.dot(n,D)>0) n={x:-n.x,y:-n.y};   // face the incoming ray
+    return {t, point:V.add(O,V.mul(D,t)), n:V.norm(n)};
+  }
+  return null;
+}
+function nearestHit(O,D,polys){
+  let best=null;
+  for(const p of polys){
+    const vs=p.verts, m=vs.length;
+    for(let i=0;i<m;i++){
+      const h=raySeg(O,D,vs[i],vs[(i+1)%m]);
+      if(h && (!best || h.t<best.t)) best=h;
+    }
+  }
+  return best;
+}
+function ringExit(O,D,C,R){
+  const f=V.sub(O,C);
+  const b=2*V.dot(f,D), c=V.dot(f,f)-R*R;
+  const disc=b*b-4*c;
+  if(disc<0) return V.add(O,V.mul(D,R*2));
+  const t=(-b+Math.sqrt(disc))/2;
+  return V.add(O,V.mul(D,Math.max(t,0.001)));
+}
+// single-scatter model: straight until first surface, reflect once, straight out.
+function simulate(O,D,polys,C,R){
+  const hit=nearestHit(O,D,polys);
+  if(!hit) return {path:[O, ringExit(O,D,C,R)], contact:null};
+  const n=hit.n;
+  const r=V.sub(D, V.mul(n, 2*V.dot(D,n)));   // reflect
+  const rn=V.norm(r);
+  const start=V.add(hit.point, V.mul(rn,0.01));
+  const exit=ringExit(start,rn,C,R);
+  return {path:[O, hit.point, exit], contact:hit.point};
+}
+
+/* ---------- convex polygon generation ---------- */
+function makeLocalPoly(radius){
+  const n = Math.random()<0.5 ? 3 : 4;
+  const base = Math.random()*Math.PI*2;
+  const angs=[];
+  for(let i=0;i<n;i++){
+    angs.push(base + i*(Math.PI*2/n) + (Math.random()-0.5)*(Math.PI/n)*0.7);
+  }
+  angs.sort((a,b)=>a-b);
+  return angs.map(a=>{
+    const rr=radius*(0.72+Math.random()*0.5);
+    return {x:Math.cos(a)*rr, y:Math.sin(a)*rr};
+  });
+}
+function worldVerts(tok){
+  return tok.local.map(v=>V.add(tok.pos, V.rot(v, tok.angle)));
+}
+function rotHandle(tok){
+  return V.add(tok.pos, V.rot({x:0, y:-((tok._rad||30)+ROT_OFFSET)}, tok.angle));
+}
+function pointInPoly(pt,vs){
+  let inside=false;
+  for(let i=0,j=vs.length-1;i<vs.length;j=i++){
+    const a=vs[i],b=vs[j];
+    if(((a.y>pt.y)!==(b.y>pt.y)) &&
+       (pt.x < (b.x-a.x)*(pt.y-a.y)/(b.y-a.y)+a.x)) inside=!inside;
+  }
+  return inside;
+}
+function centroid(vs){
+  let x=0,y=0;for(const v of vs){x+=v.x;y+=v.y;}return {x:x/vs.length,y:y/vs.length};
+}
+
+/* ---------- state ---------- */
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,DPR=1, C={x:0,y:0}, R=0;   // arena center + radius
+const S={
+  phase:'fire',           // fire | guess | reveal
+  orbit:270*DEG,          // cannon angle on ring
+  swivel:0,               // aim offset from inward, radians
+  shots:[],               // {path:[...], contact, deflected}
+  anim:[],                // active flying particles
+  truth:[],               // {local, pos, angle}
+  tokens:[],              // player guess polys {local,pos,angle,color}
+  selected:0,             // index of the token being edited
+  drag:null,              // {tok, mode, ...} or aim drag
+  score:0,
+};
+const MAXSWIVEL=55*DEG, NPOLY=3, HISTORY=500;
+
+/* ---------- sizing ---------- */
+function remap(oldC,oldR,newC,newR){          // rescale all world geometry when arena resizes
+  const k=newR/oldR;
+  const f=p=>({x:newC.x+(p.x-oldC.x)*k, y:newC.y+(p.y-oldC.y)*k});
+  const scaleLocal=l=>l.map(v=>({x:v.x*k,y:v.y*k}));
+  for(const t of S.truth){ t.pos=f(t.pos); t.local=scaleLocal(t.local); t.rad*=k; }
+  for(const tk of S.tokens){ tk.pos=f(tk.pos); tk.local=scaleLocal(tk.local); if(tk._rad) tk._rad*=k; }
+  for(const sh of S.shots) sh.path=sh.path.map(f);
+}
+function resize(){
+  const wrap=document.getElementById('wrap');
+  const nw=wrap.clientWidth, nh=wrap.clientHeight;
+  if(nw<10||nh<10) return;                    // layout not ready yet
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  cv.width=nw*DPR; cv.height=nh*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
+  const nC={x:nw/2,y:nh/2}, nR=Math.min(nw,nh)*0.44;
+  if(R>0 && S.truth.length) remap(C,R,nC,nR);  // preserve the game across a resize/rotate
+  W=nw; H=nh; C=nC; R=nR;
+}
+window.addEventListener('resize',resize);
+window.addEventListener('orientationchange',()=>setTimeout(resize,60));
+
+/* ---------- structure setup ---------- */
+function gunPos(){ return V.add(C, {x:Math.cos(S.orbit)*R, y:Math.sin(S.orbit)*R}); }
+function aimDir(){
+  const inward=V.norm(V.sub(C,gunPos()));
+  return V.rot(inward, S.swivel);
+}
+function newStructure(){
+  S.truth=[]; S.shots=[]; S.anim=[]; S.tokens=[]; S.score=0;
+  const placed=[];
+  for(let i=0;i<NPOLY;i++){
+    const rad=R*(0.10+Math.random()*0.05);
+    let pos, tries=0;
+    do{
+      const ang=Math.random()*Math.PI*2, dist=R*(0.14+Math.random()*0.34);
+      pos={x:C.x+Math.cos(ang)*dist, y:C.y+Math.sin(ang)*dist};
+      tries++;
+    }while(tries<60 && placed.some(p=>V.len(V.sub(p.pos,pos))< (p.rad+rad+R*0.06)));
+    const t={local:makeLocalPoly(rad), pos, angle:Math.random()*Math.PI*2, rad};
+    S.truth.push(t); placed.push(t);
+  }
+}
+const TOKCOLORS=['#8b7bff','#39c6ff','#ff8a4c','#4ade80','#f472b6'];
+function buildTokens(){
+  S.tokens = S.truth.map((t,i)=>({
+    local:t.local,                       // same shape, unknown place/rotation
+    pos:{x:C.x + (i-(S.truth.length-1)/2)*R*0.42, y:C.y+R*0.72},
+    angle:0, color:TOKCOLORS[i%TOKCOLORS.length]
+  }));
+  S.selected=0;
+}
+
+/* ---------- firing ---------- */
+function truthPolys(){ return S.truth.map(t=>({verts:worldVerts(t)})); }
+function fireOne(dir){
+  const O=gunPos();
+  const sh=simulate(O, dir, truthPolys(), C, R);
+  sh.deflected=!!sh.contact;
+  // path length for animation
+  let len=0; for(let i=1;i<sh.path.length;i++) len+=V.len(V.sub(sh.path[i],sh.path[i-1]));
+  S.anim.push({sh, len, prog:0, speed:len/0.42}); // ~0.42s to cross
+}
+function commitShot(sh){
+  S.shots.push(sh);
+  if(S.shots.length>HISTORY) S.shots.shift();
+  document.getElementById('shotCount').textContent=S.shots.length;
+}
+function fireFan(){
+  const inward=V.norm(V.sub(C,gunPos()));
+  const n=9;
+  for(let i=0;i<n;i++){
+    const s=(-MAXSWIVEL)+(i/(n-1))*(2*MAXSWIVEL);
+    fireOne(V.rot(inward,s));
+  }
+}
+
+/* ---------- animation loop ---------- */
+let last=performance.now();
+function loop(now){
+  const dt=Math.min((now-last)/1000,0.05); last=now;
+  for(const a of S.anim){
+    a.prog+=a.speed*dt;
+    if(a.prog>=a.len){ commitShot(a.sh); a.done=true; }
+  }
+  S.anim=S.anim.filter(a=>!a.done);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+/* ---------- drawing ---------- */
+function polyPath(vs){
+  ctx.beginPath();
+  ctx.moveTo(vs[0].x,vs[0].y);
+  for(let i=1;i<vs.length;i++) ctx.lineTo(vs[i].x,vs[i].y);
+  ctx.closePath();
+}
+function pointAlong(path,dist){
+  let d=dist;
+  for(let i=1;i<path.length;i++){
+    const seg=V.len(V.sub(path[i],path[i-1]));
+    if(d<=seg){ const t=d/(seg||1); return V.add(path[i-1],V.mul(V.sub(path[i],path[i-1]),t)); }
+    d-=seg;
+  }
+  return path[path.length-1];
+}
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  // arena
+  ctx.save();
+  ctx.beginPath(); ctx.arc(C.x,C.y,R,0,7);
+  ctx.fillStyle='#0a1220'; ctx.fill();
+  // rail
+  ctx.lineWidth=6; ctx.strokeStyle='#22304c'; ctx.stroke();
+  ctx.lineWidth=1; ctx.strokeStyle='rgba(80,100,140,.25)';
+  for(let a=0;a<360;a+=15){
+    const p1=V.add(C,{x:Math.cos(a*DEG)*(R-4),y:Math.sin(a*DEG)*(R-4)});
+    const p2=V.add(C,{x:Math.cos(a*DEG)*(R+4),y:Math.sin(a*DEG)*(R+4)});
+    ctx.beginPath();ctx.moveTo(p1.x,p1.y);ctx.lineTo(p2.x,p2.y);ctx.stroke();
+  }
+  ctx.restore();
+
+  // recorded shots
+  ctx.lineWidth=1.4; ctx.lineCap='round';
+  for(const sh of S.shots){
+    const p=sh.path;
+    if(!sh.deflected){
+      ctx.strokeStyle='rgba(57,198,255,.10)';
+      ctx.beginPath();ctx.moveTo(p[0].x,p[0].y);ctx.lineTo(p[p.length-1].x,p[p.length-1].y);ctx.stroke();
+    }else{
+      ctx.strokeStyle='rgba(57,198,255,.22)';
+      ctx.beginPath();ctx.moveTo(p[0].x,p[0].y);ctx.lineTo(p[1].x,p[1].y);ctx.stroke();
+      ctx.strokeStyle='rgba(255,106,138,.16)';
+      ctx.beginPath();ctx.moveTo(p[1].x,p[1].y);ctx.lineTo(p[2].x,p[2].y);ctx.stroke();
+    }
+  }
+  // contact sparks on top
+  for(const sh of S.shots){
+    if(sh.deflected){
+      ctx.beginPath();ctx.arc(sh.path[1].x,sh.path[1].y,2.4,0,7);
+      ctx.fillStyle='rgba(255,176,58,.85)';ctx.fill();
+    }
+  }
+
+  // truth on reveal
+  if(S.phase==='reveal'){
+    for(const t of S.truth){
+      polyPath(worldVerts(t));
+      ctx.fillStyle='rgba(74,222,128,.16)';ctx.fill();
+      ctx.lineWidth=2;ctx.strokeStyle='rgba(74,222,128,.9)';ctx.setLineDash([6,5]);ctx.stroke();ctx.setLineDash([]);
+    }
+  }
+
+  // guess tokens
+  if(S.phase==='guess'||S.phase==='reveal'){
+    S.tokens.forEach((tk,idx)=>{
+      const sel = S.phase==='guess' && idx===S.selected;
+      const vs=worldVerts(tk);
+      polyPath(vs);
+      ctx.fillStyle=hexA(tk.color, S.phase==='reveal'?0.10 : sel?0.30:0.14);ctx.fill();
+      ctx.lineWidth = sel?3.5:2; ctx.strokeStyle=tk.color; ctx.stroke();
+      if(sel){
+        const cen=tk.pos, handle=rotHandle(tk);
+        ctx.strokeStyle=hexA(tk.color,.7);ctx.lineWidth=2;
+        ctx.beginPath();ctx.moveTo(cen.x,cen.y);ctx.lineTo(handle.x,handle.y);ctx.stroke();
+        ctx.beginPath();ctx.arc(handle.x,handle.y,15,0,7);ctx.fillStyle=tk.color;ctx.fill();
+        ctx.fillStyle='#fff';ctx.font='600 17px -apple-system,system-ui,sans-serif';
+        ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('⟳',handle.x,handle.y+1);
+        ctx.beginPath();ctx.arc(cen.x,cen.y,3,0,7);ctx.fillStyle=tk.color;ctx.fill();
+      }
+    });
+  }
+
+  // flying particles
+  for(const a of S.anim){
+    const head=pointAlong(a.sh.path, a.prog);
+    const tailD=Math.max(0,a.prog-R*0.25);
+    const tail=pointAlong(a.sh.path, tailD);
+    ctx.strokeStyle='rgba(57,198,255,.9)';ctx.lineWidth=2.4;
+    ctx.beginPath();ctx.moveTo(tail.x,tail.y);ctx.lineTo(head.x,head.y);ctx.stroke();
+    ctx.beginPath();ctx.arc(head.x,head.y,3.4,0,7);ctx.fillStyle='#dff4ff';ctx.fill();
+  }
+
+  // cannon + aim (fire phase)
+  if(S.phase==='fire'){
+    const g=gunPos(), d=aimDir();
+    // aim line into arena
+    const tip=ringExit(g,d,C,R);
+    ctx.strokeStyle='rgba(57,198,255,.35)';ctx.setLineDash([5,6]);ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(g.x,g.y);ctx.lineTo(tip.x,tip.y);ctx.stroke();ctx.setLineDash([]);
+    // cannon body
+    const back=V.add(g, V.mul(d,-16));
+    ctx.strokeStyle='#39c6ff';ctx.lineWidth=9;ctx.lineCap='round';
+    ctx.beginPath();ctx.moveTo(back.x,back.y);ctx.lineTo(V.add(g,V.mul(d,10)).x,V.add(g,V.mul(d,10)).y);ctx.stroke();
+    ctx.beginPath();ctx.arc(g.x,g.y,11,0,7);ctx.fillStyle='#0b0f1a';ctx.fill();
+    ctx.lineWidth=3;ctx.strokeStyle='#39c6ff';ctx.stroke();
+  }
+}
+function hexA(hex,a){
+  const n=parseInt(hex.slice(1),16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+
+/* ---------- scoring (IoU by rasterization) ---------- */
+function scoreGuess(){
+  const G=140, x0=C.x-R, y0=C.y-R, cell=(2*R)/G;
+  const tw=S.truth.map(worldVerts), gw=S.tokens.map(worldVerts);
+  let inter=0, uni=0;
+  for(let i=0;i<G;i++)for(let j=0;j<G;j++){
+    const p={x:x0+(i+0.5)*cell, y:y0+(j+0.5)*cell};
+    const inT=tw.some(vs=>pointInPoly(p,vs));
+    const inG=gw.some(vs=>pointInPoly(p,vs));
+    if(inT||inG) uni++;
+    if(inT&&inG) inter++;
+  }
+  return uni? inter/uni : 0;
+}
+
+/* ---------- phase switching ---------- */
+function setPhase(ph){
+  S.phase=ph;
+  document.getElementById('barFire').classList.toggle('on',ph==='fire');
+  document.getElementById('barGuess').classList.toggle('on',ph==='guess');
+  document.getElementById('barReveal').classList.toggle('on',ph==='reveal');
+  document.getElementById('phaseTag').textContent= ph==='fire'?'Fire':ph==='guess'?'Place':'Reveal';
+  if(ph==='guess'){
+    if(!S.tokens.length) buildTokens();
+    for(const tk of S.tokens){ tk._rad=Math.max(...tk.local.map(v=>V.len(v))); }
+    S.selected=clamp(S.selected,0,S.tokens.length-1);
+  }
+}
+
+/* ---------- pointer input ---------- */
+function evtPos(e){
+  const r=cv.getBoundingClientRect();
+  const t=e.touches?e.touches[0]:e;
+  return {x:t.clientX-r.left, y:t.clientY-r.top};
+}
+cv.addEventListener('pointerdown',e=>{
+  cv.setPointerCapture(e.pointerId);
+  const p=evtPos(e);
+  if(S.phase==='fire'){
+    if(V.len(V.sub(p,C))<R*1.05){ S.drag={kind:'aim'}; aimTo(p); }
+  }else if(S.phase==='guess'){
+    // 1. rotate handle of the currently selected token (big target)
+    const stk=S.tokens[S.selected];
+    if(stk && V.len(V.sub(p, rotHandle(stk)))<ROT_HIT){ S.drag={kind:'rot',tk:stk}; return; }
+    // 2. tap a shape → select it (bring to top) and start moving
+    for(let i=S.tokens.length-1;i>=0;i--){
+      if(pointInPoly(p, worldVerts(S.tokens[i]))){
+        const tk=S.tokens.splice(i,1)[0];
+        S.tokens.push(tk);                 // bring to top
+        S.selected=S.tokens.length-1;
+        S.drag={kind:'move',tk,off:V.sub(tk.pos,p)};
+        return;
+      }
+    }
+  }
+},{passive:false});
+cv.addEventListener('pointermove',e=>{
+  if(!S.drag) return;
+  const p=evtPos(e);
+  if(S.drag.kind==='aim') aimTo(p);
+  else if(S.drag.kind==='move'){
+    let np=V.add(p,S.drag.off);
+    const d=V.sub(np,C); if(V.len(d)>R*0.9) np=V.add(C,V.mul(V.norm(d),R*0.9));
+    S.drag.tk.pos=np;
+  }
+  else if(S.drag.kind==='rot'){
+    S.drag.tk.angle=Math.atan2(p.y-S.drag.tk.pos.y, p.x-S.drag.tk.pos.x)+Math.PI/2;
+  }
+},{passive:false});
+cv.addEventListener('pointerup',e=>{
+  if(S.drag && S.drag.kind==='aim'){ fireOne(aimDir()); }
+  S.drag=null;
+},{passive:false});
+function aimTo(p){
+  const inward=V.norm(V.sub(C,gunPos()));
+  const want=V.norm(V.sub(p,gunPos()));
+  let s=clamp(signedAngle(inward,want),-MAXSWIVEL,MAXSWIVEL);
+  S.swivel=s;
+  document.getElementById('aim').value=Math.round(s/DEG);
+  document.getElementById('aimVal').textContent=Math.round(s/DEG)+'°';
+}
+
+/* ---------- controls ---------- */
+const $=id=>document.getElementById(id);
+$('orbit').addEventListener('input',e=>{
+  S.orbit=(+e.target.value)*DEG; $('orbitVal').textContent=e.target.value+'°';
+});
+$('aim').addEventListener('input',e=>{
+  S.swivel=(+e.target.value)*DEG; $('aimVal').textContent=e.target.value+'°';
+});
+$('btnFire').addEventListener('click',()=>fireOne(aimDir()));
+$('btnFan').addEventListener('click',fireFan);
+$('btnToGuess').addEventListener('click',()=>{ buildTokens(); setPhase('guess'); });
+function rotateSel(d){ const tk=S.tokens[S.selected]; if(tk){ tk.angle+=d; draw(); } }
+$('btnRotL').addEventListener('click',()=>rotateSel(-12*DEG));
+$('btnRotR').addEventListener('click',()=>rotateSel(12*DEG));
+$('btnBackFire').addEventListener('click',()=>setPhase('fire'));
+$('btnReveal').addEventListener('click',()=>{
+  S.score=scoreGuess();
+  const pct=Math.round(S.score*100);
+  $('scoreNum').textContent=pct+'%';
+  let label,col;
+  if(pct>=75){label='Nailed it!';col='var(--ok)';}
+  else if(pct>=50){label='Close read';col='var(--beam)';}
+  else if(pct>=25){label='On the trail';col='var(--warn)';}
+  else{label='Keep probing';col='var(--dim)';}
+  $('scoreLabel').textContent=label; $('scoreLabel').style.color=col; $('scoreNum').style.color=col;
+  setPhase('reveal');
+});
+$('btnRefire').addEventListener('click',()=>setPhase('fire'));
+$('btnNew').addEventListener('click',()=>{ newStructure(); $('shotCount').textContent=0; setPhase('fire'); });
+
+$('btnPlay').addEventListener('click',()=>{ $('ovHome').classList.remove('on'); });
+$('btnHow').addEventListener('click',()=>{ $('ovHow').classList.add('on'); });
+$('btnHowBack').addEventListener('click',()=>{ $('ovHow').classList.remove('on'); $('ovHome').classList.remove('on'); });
+
+/* ---------- boot ---------- */
+function boot(){
+  resize();
+  if(R<=0){ requestAnimationFrame(boot); return; }   // wait for real layout before generating
+  newStructure(); setPhase('fire'); requestAnimationFrame(loop);
+}
+boot();
+</script>
+</body>
+</html>
